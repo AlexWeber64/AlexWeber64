@@ -59,6 +59,11 @@ def main():
 
     all_projects = fetch_all_projects()
 
+    # --- TEMPORARY DEBUG: remove once matching is confirmed working ---
+    for p in all_projects:
+        print(f"DEBUG project name={p.get('name')!r} domains={p.get('domains')!r}", file=sys.stderr)
+    # --- end debug ---
+
     def has_matching_domain(project):
         domains = project.get("domains", []) or []
         return any(MATCH_PATTERN in d for d in domains)
