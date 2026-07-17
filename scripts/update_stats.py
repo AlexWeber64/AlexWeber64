@@ -7,9 +7,9 @@ Pulls the current count of live Cloudflare Pages deployments and writes:
 Auth: reads CF_API_TOKEN and CF_ACCOUNT_ID from environment variables.
 Set these as repo secrets, not hardcoded values.
 
-Counting logic: counts Pages projects whose subdomain matches the
-"-example-website" naming convention used by the deployment pipeline.
-Adjust MATCH_SUFFIX below if the naming convention changes.
+Counting logic: counts Pages projects that have a custom domain attached
+matching the "-example-website.alexweber.org" pattern. Adjust MATCH_PATTERN
+below if the naming convention changes.
 """
 
 import os
@@ -21,7 +21,7 @@ import urllib.error
 
 CF_API_TOKEN = os.environ.get("CF_API_TOKEN")
 CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID")
-MATCH_SUFFIX = "-example-website"  # only count real client deployments
+MATCH_PATTERN = "-example-website.alexweber.org"  # matches your live custom domain pattern
 
 API_BASE = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/pages/projects"
 
@@ -58,7 +58,12 @@ def main():
         sys.exit(1)
 
     all_projects = fetch_all_projects()
-    live_sites = [p for p in all_projects if MATCH_SUFFIX in p.get("name", "")]
+
+    def has_matching_domain(project):
+        domains = project.get("domains", []) or []
+        return any(MATCH_PATTERN in d for d in domains)
+
+    live_sites = [p for p in all_projects if has_matching_domain(p)]
 
     count = len(live_sites)
     now = datetime.datetime.utcnow().strftime("%Y-%m-%d")
