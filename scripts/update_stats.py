@@ -100,7 +100,7 @@ def main():
         "label": "live sites deployed",
         "message": f"{count:,}",
         "color": "0969da",
-        "cacheSeconds": 3600,
+        "cacheSeconds": 300,
     }
     with open("stats-badge.json", "w") as f:
         json.dump(badge, f, indent=2)
