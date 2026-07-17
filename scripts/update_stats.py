@@ -27,39 +27,29 @@ API_BASE = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/pages
 
 
 def fetch_all_projects():
-    projects = []
-    page = 1
-    per_page = 50
+    # Note: the Pages "list projects" endpoint does NOT support page/per_page
+    # query params (unlike most other Cloudflare API endpoints) — it returns
+    # the full project list in a single response. Passing those params
+    # triggers error 8000024 ("Invalid list options provided").
+    req = urllib.request.Request(
+        API_BASE,
+        headers={
+            "Authorization": f"Bearer {CF_API_TOKEN}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            body = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        print(f"Cloudflare API error: {e.code} {e.read().decode()}", file=sys.stderr)
+        sys.exit(1)
 
-    while True:
-        url = f"{API_BASE}?page={page}&per_page={per_page}"
-        req = urllib.request.Request(
-            url,
-            headers={
-                "Authorization": f"Bearer {CF_API_TOKEN}",
-                "Content-Type": "application/json",
-            },
-        )
-        try:
-            with urllib.request.urlopen(req) as resp:
-                body = json.loads(resp.read())
-        except urllib.error.HTTPError as e:
-            print(f"Cloudflare API error: {e.code} {e.read().decode()}", file=sys.stderr)
-            sys.exit(1)
+    if not body.get("success"):
+        print(f"Cloudflare API returned failure: {body.get('errors')}", file=sys.stderr)
+        sys.exit(1)
 
-        if not body.get("success"):
-            print(f"Cloudflare API returned failure: {body.get('errors')}", file=sys.stderr)
-            sys.exit(1)
-
-        result = body.get("result", [])
-        projects.extend(result)
-
-        info = body.get("result_info", {})
-        if page >= info.get("total_pages", 1):
-            break
-        page += 1
-
-    return projects
+    return body.get("result", [])
 
 
 def main():
