@@ -3,5 +3,5 @@
   "label": "live sites deployed",
   "message": "832",
   "color": "0969da",
-  "cacheSeconds": 3600
+  "cacheSeconds": 300
 }
