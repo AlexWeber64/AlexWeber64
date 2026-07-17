@@ -1,89 +1,100 @@
 #!/usr/bin/env python3
 """
-Pulls the current count of live Cloudflare Pages deployments and writes:
+Counts live business site folders in the private final-website-files repo
+and writes:
   - stats.json        (raw data, for your own records)
   - stats-badge.json  (shields.io endpoint format, consumed by the README badge)
 
-Auth: reads CF_API_TOKEN and CF_ACCOUNT_ID from environment variables.
-Set these as repo secrets, not hardcoded values.
+Why this approach: the deployment pipeline puts every business site in its
+own subfolder inside ONE Cloudflare Pages project (final-website-files),
+organized by city:
+    Pittsburgh/scott-mechanical-services-example-website/
+    Cleveland/some-other-business-example-website/
+    ...
+Custom subdomains (like b-j-z-repairz-example-website.alexweber.org) are
+routed to these folders via Cloudflare rules, not via separate Pages
+projects or custom domains — so the Cloudflare API has no clean "count"
+for this. The real source of truth is the folder structure itself, read
+via the GitHub API's Git Trees endpoint (one call, works even on a
+private repo, no pagination headaches).
 
-Counting logic: counts Pages projects that have a custom domain attached
-matching the "-example-website.alexweber.org" pattern. Adjust MATCH_PATTERN
-below if the naming convention changes.
+Auth: reads GH_PAT, GH_OWNER, GH_REPO, GH_BRANCH from environment variables.
+Set GH_PAT as a repo secret — a fine-grained PAT with read-only "Contents"
+access to the final-website-files repo is enough.
 """
 
 import os
 import sys
 import json
+import re
 import datetime
 import urllib.request
 import urllib.error
 
-CF_API_TOKEN = os.environ.get("CF_API_TOKEN")
-CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID")
-MATCH_PATTERN = "-example-website.alexweber.org"  # matches your live custom domain pattern
+GH_PAT = os.environ.get("GH_PAT")
+GH_OWNER = os.environ.get("GH_OWNER", "AlexWeber64")
+GH_REPO = os.environ.get("GH_REPO", "final-website-files")
+GH_BRANCH = os.environ.get("GH_BRANCH", "main")
 
-API_BASE = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/pages/projects"
+# Matches paths like "Pittsburgh/scott-mechanical-services-example-website"
+# i.e. exactly one city folder deep, ending in "-example-website".
+SITE_FOLDER_RE = re.compile(r"^[^/]+/[^/]+-example-website$")
+
+TREE_URL = (
+    f"https://api.github.com/repos/{GH_OWNER}/{GH_REPO}/git/trees/"
+    f"{GH_BRANCH}?recursive=1"
+)
 
 
-def fetch_all_projects():
-    # Note: the Pages "list projects" endpoint does NOT support page/per_page
-    # query params (unlike most other Cloudflare API endpoints) — it returns
-    # the full project list in a single response. Passing those params
-    # triggers error 8000024 ("Invalid list options provided").
+def fetch_tree():
     req = urllib.request.Request(
-        API_BASE,
+        TREE_URL,
         headers={
-            "Authorization": f"Bearer {CF_API_TOKEN}",
-            "Content-Type": "application/json",
+            "Authorization": f"Bearer {GH_PAT}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
         },
     )
     try:
         with urllib.request.urlopen(req) as resp:
             body = json.loads(resp.read())
     except urllib.error.HTTPError as e:
-        print(f"Cloudflare API error: {e.code} {e.read().decode()}", file=sys.stderr)
+        print(f"GitHub API error: {e.code} {e.read().decode()}", file=sys.stderr)
         sys.exit(1)
 
-    if not body.get("success"):
-        print(f"Cloudflare API returned failure: {body.get('errors')}", file=sys.stderr)
-        sys.exit(1)
+    if body.get("truncated"):
+        print(
+            "Warning: GitHub truncated the tree response (repo is very large). "
+            "Count below may be a undercount.",
+            file=sys.stderr,
+        )
 
-    return body.get("result", [])
+    return body.get("tree", [])
 
 
 def main():
-    if not CF_API_TOKEN or not CF_ACCOUNT_ID:
-        print("Missing CF_API_TOKEN or CF_ACCOUNT_ID environment variables.", file=sys.stderr)
+    if not GH_PAT:
+        print("Missing GH_PAT environment variable.", file=sys.stderr)
         sys.exit(1)
 
-    all_projects = fetch_all_projects()
+    tree = fetch_tree()
 
-    # --- TEMPORARY DEBUG: remove once matching is confirmed working ---
-    for p in all_projects:
-        print(f"DEBUG project name={p.get('name')!r} domains={p.get('domains')!r}", file=sys.stderr)
-    # --- end debug ---
+    site_folders = [
+        item["path"]
+        for item in tree
+        if item.get("type") == "tree" and SITE_FOLDER_RE.match(item.get("path", ""))
+    ]
 
-    def has_matching_domain(project):
-        domains = project.get("domains", []) or []
-        return any(MATCH_PATTERN in d for d in domains)
+    count = len(site_folders)
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
 
-    live_sites = [p for p in all_projects if has_matching_domain(p)]
-
-    count = len(live_sites)
-    now = datetime.datetime.utcnow().strftime("%Y-%m-%d")
-
-    # Raw stats, for your own reference / future dashboard use
     stats = {
         "sites_deployed": count,
-        "total_pages_projects": len(all_projects),
         "last_updated_utc": now,
     }
     with open("stats.json", "w") as f:
         json.dump(stats, f, indent=2)
 
-    # shields.io endpoint badge format
-    # https://shields.io/badges/endpoint-badge
     badge = {
         "schemaVersion": 1,
         "label": "live sites deployed",
@@ -94,7 +105,7 @@ def main():
     with open("stats-badge.json", "w") as f:
         json.dump(badge, f, indent=2)
 
-    print(f"Updated stats: {count} live sites out of {len(all_projects)} total Pages projects.")
+    print(f"Updated stats: {count} live site folders found.")
 
 
 if __name__ == "__main__":

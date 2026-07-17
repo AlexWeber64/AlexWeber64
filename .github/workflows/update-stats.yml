@@ -21,10 +21,12 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Fetch stats from Cloudflare
+      - name: Fetch stats from GitHub
         env:
-          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GH_OWNER: AlexWeber64
+          GH_REPO: final-website-files
+          GH_BRANCH: main
         run: python scripts/update_stats.py
 
       - name: Commit updated stats
